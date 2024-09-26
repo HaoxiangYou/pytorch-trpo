@@ -3,6 +3,7 @@ from itertools import count
 
 import gym
 import scipy.optimize
+import numpy as np
 
 import torch
 from models import *
@@ -38,6 +39,8 @@ parser.add_argument('--render', action='store_true',
                     help='render the environment')
 parser.add_argument('--log-interval', type=int, default=1, metavar='N',
                     help='interval between training status logs (default: 10)')
+parser.add_argument('--epochs', type=int, default=100, 
+                    help='number of training epochs')
 args = parser.parse_args()
 
 env = gym.make(args.env_name)
@@ -45,8 +48,8 @@ env = gym.make(args.env_name)
 num_inputs = env.observation_space.shape[0]
 num_actions = env.action_space.shape[0]
 
-env.seed(args.seed)
 torch.manual_seed(args.seed)
+np.random.seed(args.seed)
 
 policy_net = Policy(num_inputs, num_actions)
 value_net = Value(num_inputs)
@@ -133,7 +136,7 @@ def update_params(batch):
 running_state = ZFilter((num_inputs,), clip=5)
 running_reward = ZFilter((1,), demean=False, clip=10)
 
-for i_episode in count(1):
+for i_episode in range(args.epochs):
     memory = Memory()
 
     num_steps = 0
