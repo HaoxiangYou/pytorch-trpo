@@ -50,7 +50,7 @@ def linesearch(model,
     return False, x
 
 
-def trpo_step(model, get_loss, get_kl, compute_kl, max_kl, damping):
+def trpo_step(model, get_loss, get_kl, compute_kl, step_size, damping, is_trpo):
     loss = get_loss()
     grads = torch.autograd.grad(loss, model.parameters())
     loss_grad = torch.cat([grad.view(-1) for grad in grads]).data
@@ -68,20 +68,23 @@ def trpo_step(model, get_loss, get_kl, compute_kl, max_kl, damping):
 
         # v * damping is adding small identity to fisher information matrix
         return flat_grad_grad_kl + v * damping
-
+    
     stepdir = conjugate_gradients(Fvp, -loss_grad, 10)
 
-    shs = 0.5 * (stepdir * Fvp(stepdir)).sum(0, keepdim=True)
-
-    lm = torch.sqrt(shs / max_kl)
-    fullstep = stepdir / lm[0]
-
-    neggdotstepdir = (-loss_grad * stepdir).sum(0, keepdim=True)
-    print(("lagrange multiplier:", lm[0], "grad_norm:", loss_grad.norm()), "fullstep_norm:", fullstep.norm())
-
     prev_params = get_flat_params_from(model)
-    success, new_params = linesearch(model, get_loss, compute_kl, prev_params, fullstep,
-                                     neggdotstepdir / lm[0], max_kl)
+
+    if is_trpo:
+        shs = 0.5 * (stepdir * Fvp(stepdir)).sum(0, keepdim=True)
+        lm = torch.sqrt(shs / step_size)
+        fullstep = stepdir / lm[0]
+        neggdotstepdir = (-loss_grad * stepdir).sum(0, keepdim=True)
+        print(("lagrange multiplier:", lm[0], "grad_norm:", loss_grad.norm()), "fullstep_norm:", fullstep.norm())
+        success, new_params = linesearch(model, get_loss, compute_kl, prev_params, fullstep,
+                                        neggdotstepdir / lm[0], step_size)
+    else:
+        new_params = prev_params + step_size * stepdir
+        print(("lagrange multiplier:", 1/step_size, "grad_norm:", loss_grad.norm()))
+
     set_flat_params_to(model, new_params)
 
     return loss
