@@ -1,4 +1,6 @@
 import argparse
+import os
+import time
 
 import gym
 import scipy.optimize
@@ -11,6 +13,7 @@ from running_state import ZFilter
 from torch.autograd import Variable
 from trpo import trpo_step
 from utils import *
+from logger import Logger
 
 torch.utils.backcompat.broadcast_warning.enabled = True
 torch.utils.backcompat.keepdim_warning.enabled = True
@@ -18,6 +21,7 @@ torch.utils.backcompat.keepdim_warning.enabled = True
 torch.set_default_tensor_type('torch.DoubleTensor')
 
 parser = argparse.ArgumentParser(description='PyTorch actor-critic example')
+parser.add_argument('--exp-name', type=str, required=True, help="name of experiments")
 parser.add_argument('--gamma', type=float, default=0.995, metavar='G',
                     help='discount factor (default: 0.995)')
 parser.add_argument('--env-name', default="Reacher-v1", metavar='G',
@@ -40,9 +44,25 @@ parser.add_argument('--log-interval', type=int, default=1, metavar='N',
                     help='interval between training status logs (default: 10)')
 parser.add_argument('--epochs', type=int, default=100, 
                     help='number of training epochs')
+
 args = parser.parse_args()
 
+data_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "data")
+
+logdir = (args.exp_name
+        + "_"
+        + args.env_name
+        + "_"
+        + time.strftime("%d-%m-%Y_%H-%M-%S")
+    )
+logdir = os.path.join(data_path, logdir)
+args.logdir = logdir
+if not (os.path.exists(logdir)):
+    os.makedirs(logdir)
+
 env = gym.make(args.env_name)
+
+exp_logger = Logger(logdir)
 
 num_inputs = env.observation_space.shape[0]
 num_actions = env.action_space.shape[0]
@@ -189,3 +209,5 @@ for i_episode in range(args.epochs):
     if i_episode % args.log_interval == 0:
         print('Episode {}\tLast reward: {}\tAverage reward {:.2f}'.format(
             i_episode, reward_sum, reward_batch))
+        exp_logger.log_scalar(reward_batch, "Average reward", i_episode)
+        exp_logger.flush()
