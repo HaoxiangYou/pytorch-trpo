@@ -26,9 +26,11 @@ def conjugate_gradients(Avp, b, nsteps, residual_tol=1e-10):
 
 def linesearch(model,
                f,
+               compute_kl,
                x,
                fullstep,
                expected_improve_rate,
+               max_kl,
                max_backtracks=10,
                accept_ratio=.1):
     fval = f(True).data
@@ -41,14 +43,14 @@ def linesearch(model,
         expected_improve = expected_improve_rate * stepfrac
         ratio = actual_improve / expected_improve
         print("a/e/r", actual_improve.item(), expected_improve.item(), ratio.item())
-
+        print("average kl/kl tolerance", compute_kl().data, max_kl)
         if ratio.item() > accept_ratio and actual_improve.item() > 0:
             print("fval after", newfval.item())
             return True, xnew
     return False, x
 
 
-def trpo_step(model, get_loss, get_kl, max_kl, damping):
+def trpo_step(model, get_loss, get_kl, compute_kl, max_kl, damping):
     loss = get_loss()
     grads = torch.autograd.grad(loss, model.parameters())
     loss_grad = torch.cat([grad.view(-1) for grad in grads]).data
@@ -64,6 +66,7 @@ def trpo_step(model, get_loss, get_kl, max_kl, damping):
         grads = torch.autograd.grad(kl_v, model.parameters())
         flat_grad_grad_kl = torch.cat([grad.contiguous().view(-1) for grad in grads]).data
 
+        # v * damping is adding small identity to fisher information matrix
         return flat_grad_grad_kl + v * damping
 
     stepdir = conjugate_gradients(Fvp, -loss_grad, 10)
@@ -74,11 +77,11 @@ def trpo_step(model, get_loss, get_kl, max_kl, damping):
     fullstep = stepdir / lm[0]
 
     neggdotstepdir = (-loss_grad * stepdir).sum(0, keepdim=True)
-    print(("lagrange multiplier:", lm[0], "grad_norm:", loss_grad.norm()))
+    print(("lagrange multiplier:", lm[0], "grad_norm:", loss_grad.norm()), "fullstep_norm:", fullstep.norm())
 
     prev_params = get_flat_params_from(model)
-    success, new_params = linesearch(model, get_loss, prev_params, fullstep,
-                                     neggdotstepdir / lm[0])
+    success, new_params = linesearch(model, get_loss, compute_kl, prev_params, fullstep,
+                                     neggdotstepdir / lm[0], max_kl)
     set_flat_params_to(model, new_params)
 
     return loss

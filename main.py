@@ -1,5 +1,4 @@
 import argparse
-from itertools import count
 
 import gym
 import scipy.optimize
@@ -109,6 +108,7 @@ def update_params(batch):
 
     action_means, action_log_stds, action_stds = policy_net(Variable(states))
     fixed_log_prob = normal_log_density(Variable(actions), action_means, action_log_stds, action_stds).data.clone()
+    fixed_mean, fixed_log_std, fixed_std = tuple(e.data.clone() for e in policy_net(Variable(states)))
 
     def get_loss(volatile=False):
         if volatile:
@@ -123,6 +123,9 @@ def update_params(batch):
 
 
     def get_kl():
+        """
+        This function in the trpo to approximate the fisher information
+        """
         mean1, log_std1, std1 = policy_net(Variable(states))
 
         mean0 = Variable(mean1.data)
@@ -130,8 +133,16 @@ def update_params(batch):
         std0 = Variable(std1.data)
         kl = log_std1 - log_std0 + (std0.pow(2) + (mean0 - mean1).pow(2)) / (2.0 * std1.pow(2)) - 0.5
         return kl.sum(1, keepdim=True)
+    
+    def compute_kl():
+        """
+        This function compute the average KL between the old policy and current policy
+        """
+        mean1, log_std1, std1 = policy_net(Variable(states))
+        kl = log_std1 - fixed_log_std + (fixed_std.pow(2) + (fixed_mean - mean1).pow(2)) / (2.0 * std1.pow(2)) - 0.5
+        return kl.sum(1, keepdim=True).mean()
 
-    trpo_step(policy_net, get_loss, get_kl, args.max_kl, args.damping)
+    trpo_step(policy_net, get_loss, get_kl, compute_kl, args.max_kl, args.damping)
 
 running_state = ZFilter((num_inputs,), clip=5)
 running_reward = ZFilter((1,), demean=False, clip=10)
