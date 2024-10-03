@@ -34,7 +34,7 @@ parser.add_argument('--max-kl', type=float, default=1e-2, metavar='G',
                     help='max kl value (default: 1e-2)')
 parser.add_argument('--step_size', type=float, metavar='G',
                     help='fixed step (natural gradient setting) or max-kl (trpo setting)')
-parser.add_argument('--mirror_descent', action='store_false', help="whether treat the problem as mirror descent")
+parser.add_argument('--no_mirror_descent', action='store_true', help="whether treat the problem as mirror descent")
 parser.add_argument('--damping', type=float, default=1e-1, metavar='G',
                     help='damping (default: 1e-1)')
 parser.add_argument('--seed', type=int, default=543, metavar='N',
@@ -86,10 +86,10 @@ if args.step_size:
     step_size = args.step_size
     is_trpo = False
 
-if is_trpo and not args.mirror_descent:
+if is_trpo and args.no_mirror_descent:
     raise ValueError("SGD only works for fixed step-size")
 
-if not args.mirror_descent:
+if args.no_mirror_descent:
     optimizer = torch.optim.Adam(policy_net.parameters(), step_size)
 
 def select_action(state):
@@ -181,7 +181,7 @@ def update_params(batch):
         kl = log_std1 - fixed_log_std + (fixed_std.pow(2) + (fixed_mean - mean1).pow(2)) / (2.0 * std1.pow(2)) - 0.5
         return kl.sum(1, keepdim=True).mean()
 
-    if args.mirror_descent:
+    if not args.no_mirror_descent:
         trpo_step(policy_net, get_loss, get_kl, compute_kl, step_size, args.damping, is_trpo)
     else:
         optimizer.zero_grad()
