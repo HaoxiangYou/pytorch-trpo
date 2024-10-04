@@ -184,10 +184,24 @@ def update_params(batch):
     if not args.no_mirror_descent:
         trpo_step(policy_net, get_loss, get_kl, compute_kl, step_size, args.damping, is_trpo)
     else:
+        previous_params = get_flat_params_from(policy_net)
+        fval = get_loss().data
+        
         optimizer.zero_grad()
         loss = get_loss()
         loss.backward()
+        gradients = get_flat_grad_from(policy_net)
+        
         optimizer.step()
+        new_params = get_flat_params_from(policy_net)
+
+        newfval = get_loss().data
+        actual_improve = fval - newfval
+        expected_improve = (-gradients * (new_params - previous_params)).sum()
+        ratio = actual_improve / expected_improve
+        print("a/e/r", actual_improve.item(), expected_improve.item(), ratio.item())
+
+        print("kl:", compute_kl().data)
 
 running_state = ZFilter((num_inputs,), clip=5)
 running_reward = ZFilter((1,), demean=False, clip=10)
