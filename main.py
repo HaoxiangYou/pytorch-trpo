@@ -7,6 +7,8 @@ import scipy.optimize
 import numpy as np
 
 import torch
+from torch.optim.lbfgs import LBFGS
+
 from models import *
 from replay_memory import Memory
 from running_state import ZFilter
@@ -35,6 +37,7 @@ parser.add_argument('--max-kl', type=float, default=1e-2, metavar='G',
 parser.add_argument('--step_size', type=float, metavar='G',
                     help='fixed step (natural gradient setting) or max-kl (trpo setting)')
 parser.add_argument('--no_mirror_descent', action='store_true', help="whether treat the problem as mirror descent")
+parser.add_argument('--lbfgs', action="store_true", help="run lbfgs for policy; can only be trigger given no_mirror_descent flag")
 parser.add_argument('--damping', type=float, default=1e-1, metavar='G',
                     help='damping (default: 1e-1)')
 parser.add_argument('--seed', type=int, default=543, metavar='N',
@@ -86,11 +89,11 @@ if args.step_size:
     step_size = args.step_size
     is_trpo = False
 
-if is_trpo and args.no_mirror_descent:
-    raise ValueError("SGD only works for fixed step-size")
-
 if args.no_mirror_descent:
-    optimizer = torch.optim.Adam(policy_net.parameters(), step_size)
+    if args.lbfgs:
+        optimizer = LBFGS(policy_net.parameters(), lr=step_size)
+    else:
+        optimizer = torch.optim.Adam(policy_net.parameters(), step_size)
 
 def select_action(state):
     state = torch.from_numpy(state).unsqueeze(0)
@@ -160,6 +163,11 @@ def update_params(batch):
         action_loss = -Variable(advantages) * torch.exp(log_prob - Variable(fixed_log_prob))
         return action_loss.mean()
 
+    def closure():
+        optimizer.zero_grad()
+        loss = get_loss(volatile=False)
+        loss.backward()
+        return loss
 
     def get_kl():
         """
@@ -192,7 +200,10 @@ def update_params(batch):
         loss.backward()
         gradients = get_flat_grad_from(policy_net)
         
-        optimizer.step()
+        if args.lbfgs:
+            optimizer.step(closure)
+        else:
+            optimizer.step()
         new_params = get_flat_params_from(policy_net)
 
         newfval = get_loss().data
