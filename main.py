@@ -12,7 +12,6 @@ from torch.optim.lbfgs import LBFGS
 from models import *
 from replay_memory import Memory
 from running_state import ZFilter
-from torch.autograd import Variable
 from trpo import trpo_step
 from utils import *
 from logger import Logger
@@ -97,7 +96,7 @@ if args.no_mirror_descent:
 
 def select_action(state):
     state = torch.from_numpy(state).unsqueeze(0)
-    action_mean, _, action_std = policy_net(Variable(state))
+    action_mean, _, action_std = policy_net(state)
     action = torch.normal(action_mean, action_std)
     return action
 
@@ -106,7 +105,7 @@ def update_params(batch):
     masks = torch.Tensor(batch.mask)
     actions = torch.Tensor(np.concatenate(batch.action, 0))
     states = torch.Tensor(batch.state)
-    values = value_net(Variable(states))
+    values = value_net(states)
 
     returns = torch.Tensor(actions.size(0),1)
     deltas = torch.Tensor(actions.size(0),1)
@@ -124,7 +123,7 @@ def update_params(batch):
         prev_value = values.data[i, 0]
         prev_advantage = advantages[i, 0]
 
-    targets = Variable(returns)
+    targets = returns
 
     # Original code uses the same LBFGS to optimize the value loss
     def get_value_loss(flat_params):
@@ -133,7 +132,7 @@ def update_params(batch):
             if param.grad is not None:
                 param.grad.data.fill_(0)
 
-        values_ = value_net(Variable(states))
+        values_ = value_net(states)
 
         value_loss = (values_ - targets).pow(2).mean()
 
@@ -148,19 +147,19 @@ def update_params(batch):
 
     advantages = (advantages - advantages.mean()) / advantages.std()
 
-    action_means, action_log_stds, action_stds = policy_net(Variable(states))
-    fixed_log_prob = normal_log_density(Variable(actions), action_means, action_log_stds, action_stds).data.clone()
-    fixed_mean, fixed_log_std, fixed_std = tuple(e.data.clone() for e in policy_net(Variable(states)))
+    action_means, action_log_stds, action_stds = policy_net(states)
+    fixed_log_prob = normal_log_density(actions, action_means, action_log_stds, action_stds).data.clone()
+    fixed_mean, fixed_log_std, fixed_std = tuple(e.data.clone() for e in policy_net(states))
 
     def get_loss(volatile=False):
         if volatile:
             with torch.no_grad():
-                action_means, action_log_stds, action_stds = policy_net(Variable(states))
+                action_means, action_log_stds, action_stds = policy_net(states)
         else:
-            action_means, action_log_stds, action_stds = policy_net(Variable(states))
+            action_means, action_log_stds, action_stds = policy_net(states)
                 
-        log_prob = normal_log_density(Variable(actions), action_means, action_log_stds, action_stds)
-        action_loss = -Variable(advantages) * torch.exp(log_prob - Variable(fixed_log_prob))
+        log_prob = normal_log_density(actions, action_means, action_log_stds, action_stds)
+        action_loss = -advantages * torch.exp(log_prob - fixed_log_prob)
         return action_loss.mean()
 
     def closure():
@@ -173,11 +172,11 @@ def update_params(batch):
         """
         This function in the trpo to approximate the fisher information
         """
-        mean1, log_std1, std1 = policy_net(Variable(states))
+        mean1, log_std1, std1 = policy_net(states)
 
-        mean0 = Variable(mean1.data)
-        log_std0 = Variable(log_std1.data)
-        std0 = Variable(std1.data)
+        mean0 = mean1.data
+        log_std0 = log_std1.data
+        std0 = std1.data
         kl = log_std1 - log_std0 + (std0.pow(2) + (mean0 - mean1).pow(2)) / (2.0 * std1.pow(2)) - 0.5
         return kl.sum(1, keepdim=True)
     
@@ -185,7 +184,7 @@ def update_params(batch):
         """
         This function compute the average KL between the old policy and current policy
         """
-        mean1, log_std1, std1 = policy_net(Variable(states))
+        mean1, log_std1, std1 = policy_net(states)
         kl = log_std1 - fixed_log_std + (fixed_std.pow(2) + (fixed_mean - mean1).pow(2)) / (2.0 * std1.pow(2)) - 0.5
         return kl.sum(1, keepdim=True).mean()
 
